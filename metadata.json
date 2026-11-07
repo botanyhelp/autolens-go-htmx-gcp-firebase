@@ -1,0 +1,8 @@
+{
+  "name": "AutoLens - Video Repair Estimates",
+  "description": "Automotive repair estimate platform with mechanic walkaround video capture, itemized parts and labor, and interactive customer approval portal.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
