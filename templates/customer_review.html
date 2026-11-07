@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Repair Estimate - {{.Estimate.VehicleYear}} {{.Estimate.VehicleMake}} {{.Estimate.VehicleModel}}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/htmx.min.js"></script>
+</head>
+<body style="background: #080d1a;">
+  <div class="container" style="max-width: 680px;">
+    
+    <!-- Shop Header -->
+    <div style="background: #131b2e; border: 1px solid var(--surface-border); border-radius: 16px; padding: 20px; margin-bottom: 20px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <div>
+          <div style="font-weight: 800; font-size: 1.1rem; color: #fff;">{{.Estimate.ShopName}}</div>
+          <div style="font-size: 0.8rem; color: #34d399;">✓ Verified Automotive Repair Facility</div>
+        </div>
+        <a href="tel:{{.Estimate.ShopPhone}}" class="btn btn-outline" style="font-size: 0.8rem; padding: 6px 12px;">
+          📞 Call Shop
+        </a>
+      </div>
+
+      <div style="background: #0b0f19; border: 1px solid var(--surface-border); border-radius: 10px; padding: 12px; display: flex; justify-content: space-between;">
+        <div>
+          <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Vehicle</div>
+          <div style="font-weight: 700; color: #fff;">{{.Estimate.VehicleYear}} {{.Estimate.VehicleMake}} {{.Estimate.VehicleModel}}</div>
+        </div>
+        <div style="text-align: right;">
+          <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Estimate #</div>
+          <div style="font-family: monospace; font-weight: 600; color: #93c5fd;">{{.Estimate.EstimateNumber}}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Video Inspection -->
+    <div style="background: #131b2e; border: 1px solid var(--surface-border); border-radius: 16px; padding: 20px; margin-bottom: 20px;">
+      <h3 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 6px;">Mechanic Video Walkaround Review</h3>
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 14px;">
+        Recorded by technician {{.Estimate.MechanicName}} to show the review of proposed repairs.
+      </p>
+
+      {{if .PlaybackURL}}
+        <div class="video-container">
+          <video controls playsinline preload="metadata">
+            <source src="{{.PlaybackURL}}" type="video/mp4">
+            Your browser does not support video playback.
+          </video>
+        </div>
+      {{else}}
+        <div style="background: #0b0f19; border: 1px dashed var(--surface-border); border-radius: 10px; padding: 24px; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
+          Walkaround video is currently processing in Cloud Storage.
+        </div>
+      {{end}}
+
+      <div style="background: #0b0f19; border-radius: 8px; padding: 12px; margin-top: 12px; font-size: 0.85rem; font-style: italic; color: #cbd5e1;">
+        "{{.Estimate.Notes}}"
+      </div>
+    </div>
+
+    <!-- Line items and approval -->
+    <div id="approval-card" style="background: #131b2e; border: 1px solid var(--surface-border); border-radius: 16px; padding: 20px;">
+      
+      {{if eq .Estimate.Status "approved"}}
+        <div style="text-align: center; padding: 20px;">
+          <div style="font-size: 2rem; margin-bottom: 8px;">🎉</div>
+          <h3 style="font-size: 1.2rem; font-weight: 700; color: #34d399; margin-bottom: 6px;">You Approved This Estimate</h3>
+          <p style="font-size: 0.85rem; color: var(--text-muted);">
+            Signed by <strong>{{.Estimate.CustomerSignature}}</strong> on {{.Estimate.CustomerResponseDate}}.
+          </p>
+          <p style="font-size: 0.85rem; color: #94a3b8; margin-top: 8px;">
+            The technician has been notified and work has begun.
+          </p>
+        </div>
+      {{else}}
+        <h3 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 12px;">Repair Cost Breakdown</h3>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Description</th>
+              <th style="text-align: right;">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .Estimate.Parts}}
+            <tr>
+              <td>{{.Name}} (Qty: {{.Quantity}})</td>
+              <td style="text-align: right; font-family: monospace;">${{printf "%.2f" (call $.Multiply (float64 .Quantity) .UnitCost)}}</td>
+            </tr>
+            {{end}}
+            {{range .Estimate.Labor}}
+            <tr>
+              <td>{{.Description}} ({{.Hours}} hrs)</td>
+              <td style="text-align: right; font-family: monospace;">${{printf "%.2f" (call $.Multiply .Hours .HourlyRate)}}</td>
+            </tr>
+            {{end}}
+            <tr>
+              <td style="color: var(--text-muted);">Sales Tax ({{.Estimate.TaxRatePercent}}%)</td>
+              <td style="text-align: right; font-family: monospace; color: var(--text-muted);">${{printf "%.2f" .Estimate.TaxAmount}}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="total-box">
+          Total Authorized: ${{printf "%.2f" .Estimate.GrandTotal}}
+        </div>
+
+        <form method="POST" action="/api/estimates/approve" hx-post="/api/estimates/approve" hx-target="#approval-card" hx-swap="outerHTML" style="margin-top: 20px;">
+          <input type="hidden" name="estimate_id" value="{{.Estimate.ID}}">
+          
+          <div class="form-group">
+            <label>Customer Digital Signature (Type Full Legal Name) *</label>
+            <input type="text" name="signature" required value="{{.Estimate.CustomerName}}" placeholder="Your Name">
+          </div>
+
+          <div class="form-group">
+            <label>Notes or Questions for Technician</label>
+            <input type="text" name="customer_notes" placeholder="e.g. Please save worn parts for inspection">
+          </div>
+
+          <button type="submit" class="btn btn-success" style="width: 100%; padding: 14px; font-size: 1rem; margin-top: 10px;">
+            ✓ Authorize & Approve Repairs (${{printf "%.2f" .Estimate.GrandTotal}})
+          </button>
+        </form>
+      {{end}}
+
+    </div>
+
+  </div>
+</body>
+</html>

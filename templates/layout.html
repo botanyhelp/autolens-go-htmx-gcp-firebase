@@ -1,0 +1,32 @@
+{{define "layout"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{block "title" .}}AutoLens - Car Repair Estimates{{end}}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/htmx.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <a href="/" style="text-decoration: none;">
+        <div class="brand">
+          <span>🚗 AutoLens</span>
+          <span class="brand-badge">Go + HTMX</span>
+        </div>
+      </a>
+      <div>
+        <a href="/" class="btn btn-outline" style="margin-right: 8px;">Work Orders</a>
+        <a href="/estimates/new" class="btn">+ New Estimate</a>
+      </div>
+    </header>
+
+    <main>
+      {{template "content" .}}
+    </main>
+  </div>
+</body>
+</html>
+{{end}}
