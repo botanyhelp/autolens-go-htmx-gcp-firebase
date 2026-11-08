@@ -131,30 +131,7 @@ function uploadDirectToGCS(input, estimateId) {
   .then(res => res.json())
   .then(data => {
     if (data.use_stream) {
-      // Fallback: Stream through authenticated Go server directly into Cloud Storage
-      txt.innerText = 'Streaming video to Google Cloud Storage (via Cloud Shell auth)...';
-      const formData = new FormData();
-      formData.append('estimate_id', estimateId);
-      formData.append('video', file);
-
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', '/api/estimates/video-upload-stream', true);
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) {
-          const pct = Math.round((e.loaded / e.total) * 100);
-          bar.value = pct;
-          txt.innerText = 'Uploading to Cloud Storage: ' + pct + '% (' + (e.loaded/1024/1024).toFixed(1) + 'MB)...';
-        }
-      };
-      xhr.onload = () => {
-        if (xhr.status === 200) {
-          txt.innerText = 'Upload complete! Refreshing...';
-          window.location.reload();
-        } else {
-          alert('Upload failed: ' + xhr.responseText);
-        }
-      };
-      xhr.send(formData);
+      uploadViaServerStream(file, estimateId, bar, txt);
       return;
     }
 
@@ -163,7 +140,9 @@ function uploadDirectToGCS(input, estimateId) {
     // 2. Stream directly to Google Cloud Storage via Signed URL PUT
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', data.upload_url, true);
-    xhr.setRequestHeader('Content-Type', file.type || 'video/mp4');
+    if (file.type) {
+      xhr.setRequestHeader('Content-Type', file.type);
+    }
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) {
@@ -183,8 +162,15 @@ function uploadDirectToGCS(input, estimateId) {
           window.location.reload();
         });
       } else {
-        alert('Upload to Cloud Storage failed (' + xhr.status + '): ' + (xhr.statusText || 'Access Denied / Insufficient Storage Permissions'));
+        console.warn('Direct GCS PUT returned ' + xhr.status + '. Automatically trying server streaming upload...');
+        txt.innerText = 'Direct upload got ' + xhr.status + '. Falling back to server upload...';
+        uploadViaServerStream(file, estimateId, bar, txt);
       }
+    };
+
+    xhr.onerror = () => {
+      console.warn('Direct GCS PUT network error. Trying server streaming upload...');
+      uploadViaServerStream(file, estimateId, bar, txt);
     };
 
     xhr.send(file);
@@ -192,6 +178,35 @@ function uploadDirectToGCS(input, estimateId) {
   .catch(err => {
     alert('Upload request failed: ' + (err.message || err));
   });
+}
+
+function uploadViaServerStream(file, estimateId, bar, txt) {
+  txt.innerText = 'Streaming video through Go server to Cloud Storage...';
+  const formData = new FormData();
+  formData.append('estimate_id', estimateId);
+  formData.append('video', file);
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/estimates/video-upload-stream', true);
+  xhr.upload.onprogress = (e) => {
+    if (e.lengthComputable) {
+      const pct = Math.round((e.loaded / e.total) * 100);
+      bar.value = pct;
+      txt.innerText = 'Streaming to Cloud Storage: ' + pct + '% (' + (e.loaded/1024/1024).toFixed(1) + 'MB)...';
+    }
+  };
+  xhr.onload = () => {
+    if (xhr.status === 200) {
+      txt.innerText = 'Upload complete! Refreshing...';
+      window.location.reload();
+    } else {
+      alert('Upload failed (' + xhr.status + '): ' + xhr.responseText);
+    }
+  };
+  xhr.onerror = () => {
+    alert('Server stream upload failed due to network error.');
+  };
+  xhr.send(formData);
 }
 </script>
 {{end}}

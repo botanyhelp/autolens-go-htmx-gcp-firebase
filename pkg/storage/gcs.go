@@ -38,9 +38,6 @@ func (s *Service) GenerateUploadSignedURL(ctx context.Context, estimateID, conte
 		Scheme:  gcs.SigningSchemeV4,
 		Method:  "PUT",
 		Expires: time.Now().Add(15 * time.Minute),
-		Headers: []string{
-			fmt.Sprintf("Content-Type: %s", contentType),
-		},
 	}
 
 	signedURL, err := s.client.Bucket(s.bucketName).SignedURL(objectKey, opts)
