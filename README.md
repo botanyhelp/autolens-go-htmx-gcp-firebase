@@ -59,26 +59,30 @@ AutoLens uses **V4 Signed URLs**:
 
 ## ☁️ Connecting to Live Google Cloud (GCP)
 
-To connect to your live GCP project:
+To connect to your live GCP project (tested on Cloud Shell & local machines):
 
-1. **Set your Google Cloud Project ID:**
+1. **Set your Project ID and Bucket Name:**
    ```bash
-   export GOOGLE_CLOUD_PROJECT="your-gcp-project-id"
-   export GCS_VIDEO_BUCKET="your-video-bucket-name"
+   export PROJECT_ID="your-gcp-project-id"
+   export GOOGLE_CLOUD_PROJECT="$PROJECT_ID"
+   export GCS_VIDEO_BUCKET="autolens-records-$PROJECT_ID"
    ```
 
-2. **Authenticate your local machine:**
+2. **Initialize Firestore (us-central1 includes the GCP Free Tier):**
    ```bash
-   gcloud auth application-default login
+   gcloud services enable firestore.googleapis.com
+   gcloud firestore databases create --location=us-central1 --type=firestore-native
    ```
 
-3. **Configure your GCS Bucket for Browser Uploads (CORS):**
+3. **Create the Storage Bucket & Apply CORS for Direct Browser Uploads:**
    ```bash
+   gcloud storage buckets create gs://$GCS_VIDEO_BUCKET --location=us-central1
    gcloud storage buckets update gs://$GCS_VIDEO_BUCKET --cors-file=cors.json
    ```
 
-4. **Run Go:**
+4. **Tidy dependencies and run:**
    ```bash
+   go mod tidy
    go run main.go
    ```
 

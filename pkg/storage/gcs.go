@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"io"
 	"time"
 
 	gcs "cloud.google.com/go/storage"
@@ -50,8 +51,25 @@ func (s *Service) GenerateUploadSignedURL(ctx context.Context, estimateID, conte
 	return signedURL, objectKey, nil
 }
 
+// UploadObjectDirect streams data directly to GCS using the authenticated storage client.
+// This works with ALL GCP credential types (including user ADC, Cloud Shell, and Workload Identity)
+// without requiring an RSA private key.
+func (s *Service) UploadObjectDirect(ctx context.Context, objectKey, contentType string, r io.Reader) error {
+	if s.client == nil {
+		return nil
+	}
+
+	wc := s.client.Bucket(s.bucketName).Object(objectKey).NewWriter(ctx)
+	wc.ContentType = contentType
+	if _, err := io.Copy(wc, r); err != nil {
+		wc.Close()
+		return fmt.Errorf("failed writing to GCS: %w", err)
+	}
+	return wc.Close()
+}
+
 // GeneratePlaybackSignedURL creates a short-lived read-only GET signed URL
-// for the customer to securely stream the video directly from Cloud Storage.
+// or direct storage URL for the customer to securely stream the video.
 func (s *Service) GeneratePlaybackSignedURL(ctx context.Context, objectKey string) (string, error) {
 	if s.client == nil || objectKey == "" {
 		return "", nil
@@ -65,7 +83,8 @@ func (s *Service) GeneratePlaybackSignedURL(ctx context.Context, objectKey strin
 
 	url, err := s.client.Bucket(s.bucketName).SignedURL(objectKey, opts)
 	if err != nil {
-		return "", fmt.Errorf("failed to generate playback URL: %w", err)
+		// Fallback to standard Cloud Storage URL if local key signing is not configured
+		return fmt.Sprintf("https://storage.googleapis.com/%s/%s", s.bucketName, objectKey), nil
 	}
 
 	return url, nil

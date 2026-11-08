@@ -130,9 +130,37 @@ function uploadDirectToGCS(input, estimateId) {
   })
   .then(res => res.json())
   .then(data => {
-    txt.innerText = 'Step 2/3: Streaming direct to Google Cloud Storage (0%)...';
+    if (data.use_stream) {
+      // Fallback: Stream through authenticated Go server directly into Cloud Storage
+      txt.innerText = 'Streaming video to Google Cloud Storage (via Cloud Shell auth)...';
+      const formData = new FormData();
+      formData.append('estimate_id', estimateId);
+      formData.append('video', file);
 
-    // 2. Stream directly to Google Cloud Storage via PUT
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/estimates/video-upload-stream', true);
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const pct = Math.round((e.loaded / e.total) * 100);
+          bar.value = pct;
+          txt.innerText = 'Uploading to Cloud Storage: ' + pct + '% (' + (e.loaded/1024/1024).toFixed(1) + 'MB)...';
+        }
+      };
+      xhr.onload = () => {
+        if (xhr.status === 200) {
+          txt.innerText = 'Upload complete! Refreshing...';
+          window.location.reload();
+        } else {
+          alert('Upload failed: ' + xhr.responseText);
+        }
+      };
+      xhr.send(formData);
+      return;
+    }
+
+    txt.innerText = 'Streaming direct to Google Cloud Storage (0%)...';
+
+    // 2. Stream directly to Google Cloud Storage via Signed URL PUT
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', data.upload_url, true);
     xhr.setRequestHeader('Content-Type', file.type || 'video/mp4');
@@ -141,13 +169,13 @@ function uploadDirectToGCS(input, estimateId) {
       if (e.lengthComputable) {
         const pct = Math.round((e.loaded / e.total) * 100);
         bar.value = pct;
-        txt.innerText = 'Step 2/3: Streaming direct to Google Cloud Storage (' + pct + '% of ' + (e.total/1024/1024).toFixed(1) + 'MB)...';
+        txt.innerText = 'Streaming direct to Google Cloud Storage (' + pct + '% of ' + (e.total/1024/1024).toFixed(1) + 'MB)...';
       }
     };
 
     xhr.onload = () => {
       if (xhr.status === 200) {
-        txt.innerText = 'Step 3/3: Upload complete! Notifying Firestore...';
+        txt.innerText = 'Upload complete! Notifying Firestore...';
         // 3. Inform Go backend
         fetch('/api/estimates/video-complete?estimate_id=' + estimateId + '&gcs_path=' + encodeURIComponent(data.gcs_path), {
           method: 'POST'
@@ -162,7 +190,7 @@ function uploadDirectToGCS(input, estimateId) {
     xhr.send(file);
   })
   .catch(err => {
-    alert('Error getting signed URL: ' + err);
+    alert('Upload failed: ' + err);
   });
 }
 </script>

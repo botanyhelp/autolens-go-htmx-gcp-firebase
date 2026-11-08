@@ -42,6 +42,9 @@ func main() {
 	// Auto-detect project ID from standard GCP environment variables
 	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
 	if projectID == "" {
+		projectID = os.Getenv("PROJECT_ID")
+	}
+	if projectID == "" {
 		projectID = os.Getenv("DEVSHELL_PROJECT_ID")
 	}
 
@@ -94,8 +97,9 @@ func main() {
 	mux.HandleFunc("/estimates/create", handleCreateEstimate)
 	mux.HandleFunc("/estimates/", handleEstimateDetail)
 
-	// Video Signed URL API routes (Direct-to-GCS upload)
+	// Video Signed URL API routes (Direct-to-GCS upload + Stream fallback)
 	mux.HandleFunc("/api/estimates/video-upload-url", handleGetUploadSignedURL)
+	mux.HandleFunc("/api/estimates/video-upload-stream", handleVideoUploadStream)
 	mux.HandleFunc("/api/estimates/video-complete", handleVideoUploadComplete)
 
 	// Customer Review Portal routes
@@ -253,7 +257,7 @@ func handleEstimateDetail(w http.ResponseWriter, r *http.Request) {
 	t.ExecuteTemplate(w, "layout", data)
 }
 
-// Direct-to-GCS: Returns a 15-minute write-only V4 Signed PUT URL
+// Direct-to-GCS: Returns a 15-minute write-only V4 Signed PUT URL, or indicates stream fallback
 func handleGetUploadSignedURL(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -266,16 +270,74 @@ func handleGetUploadSignedURL(w http.ResponseWriter, r *http.Request) {
 		contentType = "video/mp4"
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	url, path, err := storageService.GenerateUploadSignedURL(r.Context(), estimateID, contentType)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to sign URL: %v", err), http.StatusInternalServerError)
+		log.Printf("[Cloud Storage] ℹ️  Signed URL local key generation not available (%v). Switching to streaming GCS upload.", err)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"use_stream": true,
+			"error":      err.Error(),
+		})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	json.NewEncoder(w).Encode(map[string]interface{}{
 		"upload_url": url,
 		"gcs_path":   path,
+		"use_stream": false,
+	})
+}
+
+// Fallback upload handler: Streams multipart video data directly into Google Cloud Storage
+// using standard ADC credentials without requiring a private RSA signing key
+func handleVideoUploadStream(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 500 MB max video limit
+	if err := r.ParseMultipartForm(500 << 20); err != nil {
+		http.Error(w, "File too large or invalid multipart form", http.StatusBadRequest)
+		return
+	}
+
+	estimateID := r.FormValue("estimate_id")
+	file, header, err := r.FormFile("video")
+	if err != nil {
+		http.Error(w, "Missing video file in request", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	contentType := header.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "video/mp4"
+	}
+
+	objectKey := fmt.Sprintf("estimates/%s/walkaround_%d.mp4", estimateID, time.Now().Unix())
+	log.Printf("[Cloud Storage] Streaming video '%s' (%d bytes) directly to GCS bucket '%s'...", header.Filename, header.Size, bucketName)
+
+	if err := storageService.UploadObjectDirect(r.Context(), objectKey, contentType, file); err != nil {
+		log.Printf("[Cloud Storage] ⚠️ GCS direct upload error: %v", err)
+		http.Error(w, fmt.Sprintf("Cloud Storage upload failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Update Firestore
+	ctx := r.Context()
+	est, err := repo.GetByID(ctx, estimateID)
+	if err == nil && est != nil {
+		est.VideoGCSPath = objectKey
+		est.Status = "awaiting_customer"
+		_ = repo.Save(ctx, est)
+	}
+
+	log.Printf("[Cloud Storage] ✅ Video uploaded successfully to GCS object: %s", objectKey)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":   "ok",
+		"gcs_path": objectKey,
 	})
 }
 
