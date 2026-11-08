@@ -39,9 +39,16 @@ var (
 
 func main() {
 	ctx := context.Background()
+	// Auto-detect project ID from standard GCP environment variables
 	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
+	if projectID == "" {
+		projectID = os.Getenv("DEVSHELL_PROJECT_ID")
+	}
+
 	bucketName = os.Getenv("GCS_VIDEO_BUCKET")
-	if bucketName == "" {
+	if bucketName == "" && projectID != "" {
+		bucketName = fmt.Sprintf("autolens-records-%s", projectID)
+	} else if bucketName == "" {
 		bucketName = "autolens-video-records"
 	}
 
@@ -51,12 +58,16 @@ func main() {
 		var err error
 		firestoreClient, err = firestore.NewClient(ctx, projectID)
 		if err != nil {
-			log.Printf("[Firestore] Notice: Could not connect to GCP Firestore (%v). Using fast in-memory store for local testing.", err)
+			log.Printf("[Firestore] ⚠️  Warning: Connected to project '%s' but Firestore is not initialized yet (%v).", projectID, err)
+			log.Printf("[Firestore] 👉 To enable Firestore in this GCP project, run:")
+			log.Printf("     gcloud firestore databases create --location=nam5 --type=firestore-native")
+			log.Printf("[Firestore] Falling back to in-memory storage for now.")
 		} else {
-			log.Printf("[Firestore] Connected to GCP Firestore project: %s", projectID)
+			log.Printf("[Firestore] ✅ Connected to GCP Firestore! Project: '%s', Collection: 'estimates'", projectID)
 		}
 	} else {
-		log.Printf("[Firestore] GOOGLE_CLOUD_PROJECT not set. Running with built-in in-memory repository with pre-seeded estimates.")
+		log.Printf("[Firestore] ℹ️  GOOGLE_CLOUD_PROJECT not set. Running with built-in in-memory repository.")
+		log.Printf("     Run 'export GOOGLE_CLOUD_PROJECT=your-project-id' to connect to live Firestore.")
 	}
 	repo = db.NewRepository(firestoreClient)
 

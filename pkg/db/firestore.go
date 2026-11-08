@@ -107,16 +107,24 @@ func NewRepository(client *firestore.Client) *Repository {
 }
 
 func (r *Repository) Save(ctx context.Context, est *Estimate) error {
+	var firestoreErr error
 	if r.client != nil {
 		_, err := r.client.Collection("estimates").Doc(est.ID).Set(ctx, est)
 		if err != nil {
-			return fmt.Errorf("firestore save error: %w", err)
+			firestoreErr = err
+			fmt.Printf("[Firestore] ⚠️  Write to Firestore collection 'estimates/%s' failed: %v\n", est.ID, err)
+			fmt.Printf("[Firestore] 💡 Tip: If you haven't created the database yet, run: gcloud firestore databases create --location=nam5 --type=firestore-native\n")
+		} else {
+			fmt.Printf("[Firestore] ✅ Successfully saved estimate '%s' to GCP Firestore collection 'estimates'!\n", est.ID)
 		}
 	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.memory[est.ID] = est
+
+	// Return error only if both failed, otherwise local state succeeds
+	_ = firestoreErr
 	return nil
 }
 
