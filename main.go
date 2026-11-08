@@ -55,6 +55,16 @@ func main() {
 		bucketName = "autolens-video-records"
 	}
 
+	// Check for service account credentials
+	credPath := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	if credPath != "" {
+		log.Printf("[Auth] ✅ Using Service Account key: %s", credPath)
+	} else {
+		log.Printf("[Auth] ⚠️  GOOGLE_APPLICATION_CREDENTIALS is NOT set.")
+		log.Printf("[Auth] ⚠️  In Cloud Shell, the Go runtime defaults to VM metadata, which lacks permissions on '%s'.", projectID)
+		log.Printf("[Auth] 👉 To fix: Create and export a service account key (see instructions).")
+	}
+
 	// 1. Initialize Firestore client (with graceful local fallback)
 	var firestoreClient *firestore.Client
 	if projectID != "" {

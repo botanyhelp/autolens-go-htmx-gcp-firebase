@@ -183,14 +183,14 @@ function uploadDirectToGCS(input, estimateId) {
           window.location.reload();
         });
       } else {
-        alert('Upload failed: ' + xhr.statusText);
+        alert('Upload to Cloud Storage failed (' + xhr.status + '): ' + (xhr.statusText || 'Access Denied / Insufficient Storage Permissions'));
       }
     };
 
     xhr.send(file);
   })
   .catch(err => {
-    alert('Upload failed: ' + err);
+    alert('Upload request failed: ' + (err.message || err));
   });
 }
 </script>
