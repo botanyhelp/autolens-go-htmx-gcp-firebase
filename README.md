@@ -74,13 +74,31 @@ To connect to your live GCP project (tested on Cloud Shell & local machines):
    gcloud firestore databases create --location=us-central1 --type=firestore-native
    ```
 
-3. **Create the Storage Bucket & Apply CORS for Direct Browser Uploads:**
+3. **Create Service Account and Key:**
+   ```bash
+   gcloud iam service-accounts create autolens-dev --display-name="autolens-dev"
+   
+   # Note: If prompted 'Please specify a condition', select [2] None
+   gcloud projects add-iam-policy-binding $PROJECT_ID \
+     --member="serviceAccount:autolens-dev@$PROJECT_ID.iam.gserviceaccount.com" \
+     --role="roles/datastore.owner"
+
+   gcloud projects add-iam-policy-binding $PROJECT_ID \
+     --member="serviceAccount:autolens-dev@$PROJECT_ID.iam.gserviceaccount.com" \
+     --role="roles/storage.admin"
+
+   mkdir -p ~/.gcp
+   gcloud iam service-accounts keys create ~/.gcp/autolens-key.json \
+     --iam-account="autolens-dev@$PROJECT_ID.iam.gserviceaccount.com"
+   ```
+
+4. **Create the Storage Bucket & Apply CORS for Direct Browser Uploads:**
    ```bash
    gcloud storage buckets create gs://$GCS_VIDEO_BUCKET --location=us-central1
    gcloud storage buckets update gs://$GCS_VIDEO_BUCKET --cors-file=cors.json
    ```
 
-4. **Tidy dependencies and run:**
+5. **Tidy dependencies and run:**
    ```bash
    go mod tidy
    go run main.go
