@@ -113,5 +113,14 @@ gcloud run deploy autolens \
   --source . \
   --region us-central1 \
   --allow-unauthenticated \
-  --set-env-vars GCS_VIDEO_BUCKET=your-bucket-name
+  --service-account="autolens-dev@$PROJECT_ID.iam.gserviceaccount.com" \
+  --set-env-vars "GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GCS_VIDEO_BUCKET=autolens-records-$PROJECT_ID"
+```
+
+Or update an existing Cloud Run service:
+```bash
+gcloud run services update autolens \
+  --region us-central1 \
+  --service-account="autolens-dev@$PROJECT_ID.iam.gserviceaccount.com" \
+  --set-env-vars "GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GCS_VIDEO_BUCKET=autolens-records-$PROJECT_ID"
 ```

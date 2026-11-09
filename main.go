@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -37,16 +38,41 @@ var (
 	}
 )
 
+// detectGCPProjectID discovers the project ID from env vars or the GCP metadata server
+func detectGCPProjectID() string {
+	if id := os.Getenv("GOOGLE_CLOUD_PROJECT"); id != "" {
+		return id
+	}
+	if id := os.Getenv("PROJECT_ID"); id != "" {
+		return id
+	}
+	if id := os.Getenv("DEVSHELL_PROJECT_ID"); id != "" {
+		return id
+	}
+
+	// Query Google Cloud Metadata Server (automatically available in Cloud Run & GKE)
+	client := &http.Client{Timeout: 1500 * time.Millisecond}
+	req, err := http.NewRequest("GET", "http://metadata.google.internal/computeMetadata/v1/project/project-id", nil)
+	if err == nil {
+		req.Header.Set("Metadata-Flavor", "Google")
+		resp, err := client.Do(req)
+		if err == nil && resp.StatusCode == http.StatusOK {
+			defer resp.Body.Close()
+			if data, err := io.ReadAll(resp.Body); err == nil {
+				id := strings.TrimSpace(string(data))
+				if id != "" {
+					return id
+				}
+			}
+		}
+	}
+	return ""
+}
+
 func main() {
 	ctx := context.Background()
-	// Auto-detect project ID from standard GCP environment variables
-	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
-	if projectID == "" {
-		projectID = os.Getenv("PROJECT_ID")
-	}
-	if projectID == "" {
-		projectID = os.Getenv("DEVSHELL_PROJECT_ID")
-	}
+	// Auto-detect project ID from env vars or GCP metadata server
+	projectID := detectGCPProjectID()
 
 	bucketName = os.Getenv("GCS_VIDEO_BUCKET")
 	if bucketName == "" && projectID != "" {
@@ -59,6 +85,8 @@ func main() {
 	credPath := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
 	if credPath != "" {
 		log.Printf("[Auth] ✅ Using Service Account key: %s", credPath)
+	} else if kService := os.Getenv("K_SERVICE"); kService != "" {
+		log.Printf("[Auth] ✅ Running on Cloud Run (service: %s). Authenticating via Cloud Run service account.", kService)
 	} else {
 		log.Printf("[Auth] ⚠️  GOOGLE_APPLICATION_CREDENTIALS is NOT set.")
 		log.Printf("[Auth] ⚠️  In Cloud Shell, the Go runtime defaults to VM metadata, which lacks permissions on '%s'.", projectID)
