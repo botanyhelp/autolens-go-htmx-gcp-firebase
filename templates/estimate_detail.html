@@ -30,8 +30,8 @@
       </p>
       {{if .PlaybackURL}}
         <div class="video-container">
-          <video controls playsinline>
-            <source src="{{.PlaybackURL}}" type="video/mp4">
+          <video controls playsinline preload="metadata" src="{{.PlaybackURL}}" style="width: 100%; display: block;">
+            <source src="{{.PlaybackURL}}">
             Your browser does not support HTML5 video.
           </video>
         </div>

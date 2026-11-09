@@ -27,6 +27,7 @@ var content embed.FS
 var (
 	repo           *db.Repository
 	storageService *storage.Service
+	gcsClient      *gcs.Client
 	bucketName     string
 	tmplFuncs      = template.FuncMap{
 		"Multiply": func(a, b float64) float64 {
@@ -113,7 +114,6 @@ func main() {
 	repo = db.NewRepository(firestoreClient)
 
 	// 2. Initialize Cloud Storage client (with graceful local fallback)
-	var gcsClient *gcs.Client
 	var err error
 	gcsClient, err = gcs.NewClient(ctx)
 	if err != nil {
@@ -139,6 +139,9 @@ func main() {
 	mux.HandleFunc("/api/estimates/video-upload-url", handleGetUploadSignedURL)
 	mux.HandleFunc("/api/estimates/video-upload-stream", handleVideoUploadStream)
 	mux.HandleFunc("/api/estimates/video-complete", handleVideoUploadComplete)
+
+	// Video Playback Stream Route (Serves directly from private GCS with HTTP Range support for scrubbing)
+	mux.HandleFunc("/api/videos/stream", handleVideoStream)
 
 	// Customer Review Portal routes
 	mux.HandleFunc("/review/", handleCustomerReview)
@@ -490,4 +493,81 @@ func handleCustomerApprove(w http.ResponseWriter, r *http.Request) {
 			</div>
 		</div>
 	`, template.HTMLEscapeString(signature), est.GrandTotal(), est.CustomerResponseDate)
+}
+
+// handleVideoStream streams videos directly from private Cloud Storage with HTTP 206 Partial Content (Range) support for smooth seeking
+func handleVideoStream(w http.ResponseWriter, r *http.Request) {
+	objectKey := r.URL.Query().Get("path")
+	if objectKey == "" {
+		http.Error(w, "Missing path parameter", http.StatusBadRequest)
+		return
+	}
+
+	if gcsClient == nil {
+		http.Error(w, "Storage client not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	ctx := r.Context()
+	obj := gcsClient.Bucket(bucketName).Object(objectKey)
+
+	attrs, err := obj.Attrs(ctx)
+	if err != nil {
+		log.Printf("[Video Stream] ⚠️ Object not found '%s' in bucket '%s': %v", objectKey, bucketName, err)
+		http.Error(w, "Video not found", http.StatusNotFound)
+		return
+	}
+
+	totalSize := attrs.Size
+	contentType := attrs.ContentType
+	if contentType == "" {
+		contentType = "video/mp4"
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Accept-Ranges", "bytes")
+
+	rangeHeader := r.Header.Get("Range")
+	if rangeHeader == "" {
+		w.Header().Set("Content-Length", strconv.FormatInt(totalSize, 10))
+		reader, err := obj.NewReader(ctx)
+		if err != nil {
+			http.Error(w, "Failed to read video", http.StatusInternalServerError)
+			return
+		}
+		defer reader.Close()
+		io.Copy(w, reader)
+		return
+	}
+
+	// Parse Range header: bytes=start-end
+	var start, end int64
+	end = totalSize - 1
+	rangeParts := strings.TrimPrefix(rangeHeader, "bytes=")
+	parts := strings.Split(rangeParts, "-")
+	if len(parts) >= 1 && parts[0] != "" {
+		start, _ = strconv.ParseInt(parts[0], 10, 64)
+	}
+	if len(parts) >= 2 && parts[1] != "" {
+		end, _ = strconv.ParseInt(parts[1], 10, 64)
+	}
+
+	if start >= totalSize || end >= totalSize || start > end {
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", totalSize))
+		http.Error(w, "Requested range not satisfiable", http.StatusRequestedRangeNotSatisfiable)
+		return
+	}
+
+	length := end - start + 1
+	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, totalSize))
+	w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
+	w.WriteHeader(http.StatusPartialContent)
+
+	reader, err := obj.NewRangeReader(ctx, start, length)
+	if err != nil {
+		log.Printf("[Video Stream] ⚠️ RangeReader error for '%s': %v", objectKey, err)
+		return
+	}
+	defer reader.Close()
+	io.Copy(w, reader)
 }
